@@ -52,12 +52,33 @@ pub fn part2(input: &str) -> u32 {
 
     const PRESENT_FLAG: u32 = 1 << 31;
 
-    for line in input.lines() {
-        let left: u32 = (&line[0..5]).parse().unwrap();
-        let right: u32 = (&line[8..13]).parse().unwrap();
+    for i in 0..15 {
+        for n in parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64))).cast::<u64>().read_unaligned() }))).to_array() {
+            let n = n as u32;
+            map.entry(n).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
+        }
+        for n in parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64)) + 8).cast::<u64>().read_unaligned() }))).to_array() {
+            let n = n as u32;
+            map.entry(n).and_modify(|x| *x += n).or_insert(n);
+        }
+    }
 
-        map.entry(left).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
-        map.entry(right).and_modify(|x| *x += right).or_insert(right);
+    for n in parse_many_5_digit_numbers(Simd::<u64, 32>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440).cast::<u64>().read_unaligned() }))).to_array() {
+        let n = n as u32;
+        map.entry(n).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
+    }
+    for n in parse_many_5_digit_numbers(Simd::<u64, 32>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 8).cast::<u64>().read_unaligned() }))).to_array() {
+        let n = n as u32;
+        map.entry(n).and_modify(|x| *x += n).or_insert(n);
+    }
+
+    for n in parse_many_5_digit_numbers(Simd::<u64, 8>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 448).cast::<u64>().read_unaligned() }))).to_array() {
+        let n = n as u32;
+        map.entry(n).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
+    }
+    for n in parse_many_5_digit_numbers(Simd::<u64, 8>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 448 + 8).cast::<u64>().read_unaligned() }))).to_array() {
+        let n = n as u32;
+        map.entry(n).and_modify(|x| *x += n).or_insert(n);
     }
 
     map.into_iter().map(|(_, x)| x).filter(|x| x & PRESENT_FLAG != 0).map(|x| x & !PRESENT_FLAG).sum()
