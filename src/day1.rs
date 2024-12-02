@@ -1,7 +1,5 @@
 use aoc_runner_derive::aoc;
-use std::cmp::Reverse;
-use std::collections::{HashMap, BinaryHeap};
-use std::simd::{SupportedLaneCount, Simd, LaneCount, cmp::SimdPartialEq, num::SimdUint, ptr::{SimdConstPtr, SimdMutPtr}};
+use std::simd::{SupportedLaneCount, Simd, LaneCount, cmp::{SimdPartialEq, SimdOrd}, num::SimdUint, ptr::{SimdConstPtr, SimdMutPtr}};
 use std::mem::MaybeUninit;
 
 const LINES: usize = 1000;
@@ -35,9 +33,6 @@ pub fn part1(input: &str) -> u64 {
             distance += left.abs_diff(right);
         }
 
-        debug_assert!(left_queue.is_empty());
-        debug_assert!(right_queue.is_empty());
-
         distance
     }
 }
@@ -45,7 +40,7 @@ pub fn part1(input: &str) -> u64 {
 #[aoc(day1, part2)]
 pub fn part2(input: &str) -> u64 {
     let mut sum = 0;
-    let mut bitmask = Bitmask { bitmask: [Simd::splat(0); 391] };
+    let mut bitmask = Bitmask { bitmask: [0; 1563] };
 
     for i in 0..15 {
         bitmask.set_many(parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64))).cast::<u64>().read_unaligned() }))));
@@ -101,7 +96,7 @@ unsafe fn store_simd<const N: usize>(source: Simd<u64, N>, dest: *mut MaybeUnini
 }
 
 struct Bitmask {
-    pub bitmask: [Simd<u64, 4>; 391],
+    pub bitmask: [u64; 1563],
 }
 
 impl Bitmask {
@@ -115,8 +110,8 @@ impl Bitmask {
     #[inline(always)]
     fn filter_many<const N: usize>(&self, data: Simd<u64, N>) -> Simd<u64, N> where LaneCount<N>: SupportedLaneCount {
         let data_usize: Simd::<usize, N> = unsafe { std::intrinsics::transmute_unchecked(data) };
-        let bytes = unsafe { Simd::gather_ptr(Simd::splat(self.bitmask.as_ptr().cast::<u8>()).wrapping_add(data_usize >> Simd::splat(3))) };
-        let bit_masks = Simd::splat(1) << (Simd::from_array(data.to_array().map(|x| x as u8)) & Simd::splat(7));
-        Simd::from_array((bytes & bit_masks).to_array().map(|x| x as u64)).simd_ne(Simd::splat(0u64)).select(data, Simd::splat(0u64))
+        let bytes = unsafe { Simd::gather_ptr(Simd::splat(self.bitmask.as_ptr().cast::<u64>()).wrapping_add(data_usize >> Simd::splat(6))) };
+        let bit_masks = Simd::splat(1) << (data & Simd::splat(63));
+        data * (bytes & bit_masks).simd_min(Simd::splat(1))
     }
 }
