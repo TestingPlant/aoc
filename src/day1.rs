@@ -1,7 +1,7 @@
 use aoc_runner_derive::aoc;
 use std::cmp::Reverse;
 use std::collections::{HashMap, BinaryHeap};
-use std::simd::{SupportedLaneCount, Simd, LaneCount, ptr::SimdMutPtr};
+use std::simd::{SupportedLaneCount, Simd, LaneCount, cmp::SimdPartialEq, num::SimdUint, ptr::{SimdConstPtr, SimdMutPtr}};
 use std::mem::MaybeUninit;
 
 const LINES: usize = 1000;
@@ -43,41 +43,29 @@ pub fn part1(input: &str) -> u64 {
 }
 
 #[aoc(day1, part2)]
-pub fn part2(input: &str) -> u32 {
-    let mut map = HashMap::with_capacity(LINES * 2);
-
-    const PRESENT_FLAG: u32 = 1 << 31;
+pub fn part2(input: &str) -> u64 {
+    let mut sum = 0;
+    let mut bitmask = Bitmask { bitmask: [Simd::splat(0); 391] };
 
     for i in 0..15 {
-        for n in parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64))).cast::<u64>().read_unaligned() }))).to_array() {
-            let n = n as u32;
-            map.entry(n).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
-        }
-        for n in parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64)) + 8).cast::<u64>().read_unaligned() }))).to_array() {
-            let n = n as u32;
-            map.entry(n).and_modify(|x| *x += n).or_insert(n);
-        }
+        bitmask.set_many(parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64))).cast::<u64>().read_unaligned() }))));
     }
 
-    for n in parse_many_5_digit_numbers(Simd::<u64, 32>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440).cast::<u64>().read_unaligned() }))).to_array() {
-        let n = n as u32;
-        map.entry(n).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
-    }
-    for n in parse_many_5_digit_numbers(Simd::<u64, 32>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 8).cast::<u64>().read_unaligned() }))).to_array() {
-        let n = n as u32;
-        map.entry(n).and_modify(|x| *x += n).or_insert(n);
+    bitmask.set_many(parse_many_5_digit_numbers(Simd::<u64, 32>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440).cast::<u64>().read_unaligned() }))));
+    bitmask.set_many(parse_many_5_digit_numbers(Simd::<u64, 8>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 448).cast::<u64>().read_unaligned() }))));
+
+
+    for i in 0..15 {
+        let value = bitmask.filter_many(parse_many_5_digit_numbers(Simd::<u64, 64>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + (i * (14*64)) + 8).cast::<u64>().read_unaligned() }))));
+        sum += value.reduce_sum();
     }
 
-    for n in parse_many_5_digit_numbers(Simd::<u64, 8>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 448).cast::<u64>().read_unaligned() }))).to_array() {
-        let n = n as u32;
-        map.entry(n).and_modify(|x| *x |= PRESENT_FLAG).or_insert(PRESENT_FLAG);
-    }
-    for n in parse_many_5_digit_numbers(Simd::<u64, 8>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 448 + 8).cast::<u64>().read_unaligned() }))).to_array() {
-        let n = n as u32;
-        map.entry(n).and_modify(|x| *x += n).or_insert(n);
-    }
+    let value = bitmask.filter_many(parse_many_5_digit_numbers(Simd::<u64, 32>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 8).cast::<u64>().read_unaligned() }))));
+    sum += value.reduce_sum();
 
-    map.into_iter().map(|(_, x)| x).filter(|x| x & PRESENT_FLAG != 0).map(|x| x & !PRESENT_FLAG).sum()
+    let value = bitmask.filter_many(parse_many_5_digit_numbers(Simd::<u64, 8>::from_array(std::array::from_fn(|j| unsafe { input.as_ptr().add((j * 14) + 13440 + 448 + 8).cast::<u64>().read_unaligned() }))));
+    sum += value.reduce_sum();
+    sum
 }
 
 #[inline(always)]
@@ -110,4 +98,25 @@ fn parse_many_5_digit_numbers<const N: usize>(input: Simd<u64, N>) -> Simd<u64, 
 #[inline(always)]
 unsafe fn store_simd<const N: usize>(source: Simd<u64, N>, dest: *mut MaybeUninit<u64>) where LaneCount<N>: SupportedLaneCount {
     unsafe { source.scatter_ptr(Simd::splat(dest.cast::<u64>()).wrapping_add(Simd::from_array(std::array::from_fn(|i| i)))); }
+}
+
+struct Bitmask {
+    pub bitmask: [Simd<u64, 4>; 391],
+}
+
+impl Bitmask {
+    #[inline(always)]
+    fn set_many<const N: usize>(&mut self, pos: Simd<u64, N>) where LaneCount<N>: SupportedLaneCount {
+        let pos: Simd::<usize, N> = unsafe { std::intrinsics::transmute_unchecked(pos) };
+        let byte_pos = Simd::splat(self.bitmask.as_mut_ptr().cast::<u8>()).wrapping_add(pos >> Simd::splat(3));
+        unsafe { (Simd::gather_ptr(byte_pos.cast_const()) | (Simd::splat(1) << (Simd::from_array(pos.to_array().map(|x| x as u8)) & Simd::splat(7)))).scatter_ptr(byte_pos) };
+    }
+
+    #[inline(always)]
+    fn filter_many<const N: usize>(&self, data: Simd<u64, N>) -> Simd<u64, N> where LaneCount<N>: SupportedLaneCount {
+        let data_usize: Simd::<usize, N> = unsafe { std::intrinsics::transmute_unchecked(data) };
+        let bytes = unsafe { Simd::gather_ptr(Simd::splat(self.bitmask.as_ptr().cast::<u8>()).wrapping_add(data_usize >> Simd::splat(3))) };
+        let bit_masks = Simd::splat(1) << (Simd::from_array(data.to_array().map(|x| x as u8)) & Simd::splat(7));
+        Simd::from_array((bytes & bit_masks).to_array().map(|x| x as u64)).simd_ne(Simd::splat(0u64)).select(data, Simd::splat(0u64))
+    }
 }

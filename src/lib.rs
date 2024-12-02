@@ -1,4 +1,4 @@
-#![feature(portable_simd, maybe_uninit_array_assume_init)]
+#![feature(portable_simd, maybe_uninit_array_assume_init, core_intrinsics)]
 
 pub mod day1;
 
