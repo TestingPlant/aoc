@@ -7,15 +7,13 @@ const LINES: usize = 1000;
 #[aoc(day2, part1)]
 pub fn part1(input: &str) -> u64 {
     let mut sum = 0;
-    let mut lines = input.lines();
+    let mut start = input.as_bytes().as_ptr();
     unsafe {
         for i in 0..15 {
             let mut data: Simd<u64, 64> = Simd::splat(0);
             let mut len: Simd<u64, 64> = Simd::splat(0);
             for j in 0..64 {
-                let (line_data, line_len) = read_to_swar(lines.next().unwrap());
-                data[j] = line_data;
-                len[j] = line_len;
+                (data[j], len[j]) = read_to_swar(&mut start);
             }
             sum += count_safe(data, len);
         }
@@ -23,20 +21,16 @@ pub fn part1(input: &str) -> u64 {
         let mut data: Simd<u64, 32> = Simd::splat(0);
         let mut len: Simd<u64, 32> = Simd::splat(0);
         for j in 0..32 {
-            let (line_data, line_len) = read_to_swar(lines.next().unwrap());
-            data[j] = line_data;
-            len[j] = line_len;
+            (data[j], len[j]) = read_to_swar(&mut start);
         }
         sum += count_safe(data, len);
 
         let mut data: Simd<u64, 8> = Simd::splat(0);
         let mut len: Simd<u64, 8> = Simd::splat(0);
-        for j in 0..8 {
-            let (line_data, line_len) = read_to_swar(lines.next().unwrap());
-            data[j] = line_data;
-            len[j] = line_len;
+        for j in 0..7 {
+            (data[j], len[j]) = read_to_swar(&mut start);
         }
-        sum += count_safe(data, len);
+        (data[7], len[7]) = read_to_swar_maybe_null_terminated(&mut start);
 
         sum
     }
@@ -45,15 +39,13 @@ pub fn part1(input: &str) -> u64 {
 #[aoc(day2, part2)]
 pub fn part2(input: &str) -> u64 {
     let mut sum = 0;
-    let mut lines = input.lines();
+    let mut start = input.as_bytes().as_ptr();
     unsafe {
         for i in 0..15 {
             let mut data: Simd<u64, 64> = Simd::splat(0);
             let mut len: Simd<u64, 64> = Simd::splat(0);
             for j in 0..64 {
-                let (line_data, line_len) = read_to_swar(lines.next().unwrap());
-                data[j] = line_data;
-                len[j] = line_len;
+                (data[j], len[j]) = read_to_swar(&mut start);
             }
             sum += count_safe_part_2(data, len);
         }
@@ -61,19 +53,16 @@ pub fn part2(input: &str) -> u64 {
         let mut data: Simd<u64, 32> = Simd::splat(0);
         let mut len: Simd<u64, 32> = Simd::splat(0);
         for j in 0..32 {
-            let (line_data, line_len) = read_to_swar(lines.next().unwrap());
-            data[j] = line_data;
-            len[j] = line_len;
+            (data[j], len[j]) = read_to_swar(&mut start);
         }
         sum += count_safe_part_2(data, len);
 
         let mut data: Simd<u64, 8> = Simd::splat(0);
         let mut len: Simd<u64, 8> = Simd::splat(0);
-        for j in 0..8 {
-            let (line_data, line_len) = read_to_swar(lines.next().unwrap());
-            data[j] = line_data;
-            len[j] = line_len;
+        for j in 0..7 {
+            (data[j], len[j]) = read_to_swar(&mut start);
         }
+        (data[7], len[7]) = read_to_swar_maybe_null_terminated(&mut start);
         sum += count_safe_part_2(data, len);
 
         sum
@@ -81,13 +70,60 @@ pub fn part2(input: &str) -> u64 {
 }
 
 // Reads line into swar-encoded numbers and length
-fn read_to_swar(line: &str) -> (u64, u64) {
-    let mut result = 0;
-    let mut len = 0;
-    for (i, n) in line.split(' ').enumerate() {
-        result |= n.parse::<u64>().unwrap() << (i * 8);
+unsafe fn read_to_swar(line_ptr: &mut *const u8) -> (u64, u64) {
+    let line = line_ptr.cast::<Simd<u8, 32>>().read_unaligned();
+    let line_len = line.simd_eq(Simd::splat(b'\n')).to_bitmask().trailing_zeros() as usize;
+    let line_delims = line.simd_lt(Simd::splat(b'0'));
+
+    const ZERO: u64 = b'0' as u64;
+    let mut result = 0u64;
+    let mut len = 0u64;
+    let mut i = 0usize;
+    while i < line_len {
+        let first_digit = line[i] as u64 - ZERO;
+        if line_delims.test_unchecked(i + 1) {
+            // parse 1 digit
+            result |= first_digit << len;
+            i += 2;
+        } else {
+            // parse 2 digits
+            result |= ((first_digit * 10) + ((line[i + 1] as u64 - ZERO))) << len;
+            i += 3;
+        }
         len += 8;
     }
+
+    *line_ptr = line_ptr.add(i);
+
+    (result, len)
+}   
+
+// Reads line into swar-encoded numbers and length
+unsafe fn read_to_swar_maybe_null_terminated(line_ptr: &mut *const u8) -> (u64, u64) {
+    let line = line_ptr.cast::<Simd<u8, 32>>().read_unaligned();
+    let line_len = (line.simd_eq(Simd::splat(b'\n')) | line.simd_eq(Simd::splat(0))).to_bitmask().trailing_zeros() as usize;
+    let line_delims = line.simd_lt(Simd::splat(b'0'));
+
+    const ZERO: u64 = b'0' as u64;
+    let mut result = 0u64;
+    let mut len = 0u64;
+    let mut i = 0usize;
+    while i < line_len {
+        let first_digit = line[i] as u64 - ZERO;
+        if line_delims.test_unchecked(i + 1) {
+            // parse 1 digit
+            result |= first_digit << len;
+            i += 2;
+        } else {
+            // parse 2 digits
+            result |= ((first_digit * 10) + ((line[i + 1] as u64 - ZERO))) << len;
+            i += 3;
+        }
+        len += 8;
+    }
+
+    *line_ptr = line_ptr.add(i);
+
     (result, len)
 }   
 
