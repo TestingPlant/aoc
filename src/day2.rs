@@ -31,6 +31,7 @@ pub fn part1(input: &str) -> u64 {
             (data[j], len[j]) = read_to_swar(&mut start);
         }
         (data[7], len[7]) = read_to_swar_maybe_null_terminated(&mut start);
+        sum += count_safe(data, len);
 
         sum
     }
